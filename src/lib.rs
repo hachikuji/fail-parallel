@@ -416,10 +416,12 @@ impl FromStr for Action {
 struct FailPoint {
     actions: Mutex<ConfiguredActions>,
     sync_notifier: Condvar,
+    #[cfg(feature = "async")]
     async_notifier: AsyncNotifier
 }
 
 #[derive(Debug)]
+#[cfg(feature = "async")]
 struct AsyncNotifier {
     tx: tokio::sync::watch::Sender<u64>,
     rx: tokio::sync::watch::Receiver<u64>,
@@ -442,6 +444,7 @@ impl ConfiguredActions {
     }
 }
 
+#[cfg(feature = "async")]
 impl AsyncNotifier {
     fn new() -> AsyncNotifier {
         let (tx, rx) = tokio::sync::watch::channel(0);
@@ -458,6 +461,7 @@ impl FailPoint {
         FailPoint {
             actions: Mutex::new(initial_actions),
             sync_notifier: Condvar::new(),
+            #[cfg(feature = "async")]
             async_notifier: AsyncNotifier::new(),
         }
     }
@@ -476,6 +480,7 @@ impl FailPoint {
             actions
         };
         self.sync_notifier.notify_all();
+        #[cfg(feature = "async")]
         self.async_notifier.tx.send(next_seq).unwrap();
     }
 
@@ -529,6 +534,7 @@ impl FailPoint {
 
     #[allow(dead_code)]
     #[allow(clippy::option_option)]
+    #[cfg(feature = "async")]
     async fn eval_async(&self, name: &str) -> Option<Option<String>> {
         let (task_opt, action_seq) = self.next_task();
         if let Some(task) = task_opt {
@@ -544,6 +550,7 @@ impl FailPoint {
         (task, (*guard).seq)
     }
 
+    #[cfg(feature = "async")]
     async fn eval_task_async(
         &self,
         action_seq: u64,
@@ -730,6 +737,7 @@ pub fn eval<R, F: FnOnce(Option<String>) -> R>(
 }
 
 #[doc(hidden)]
+#[cfg(feature = "async")]
 pub async fn eval_async<R, F: FnOnce(Option<String>) -> R>(
     fp_registry: Arc<FailPointRegistry>,
     name: &str,
@@ -962,7 +970,7 @@ macro_rules! fail_point {
     }};
 }
 
-/// Define a fail point (requires `failpoints` feature).
+/// Define an async fail point (requires `failpoints` and `async` features).
 ///
 /// The `fail_point_async!` macro is similar to `fail_point` except that it
 /// can be safely used in an async function. Similar to `fail_point`, it
@@ -1026,7 +1034,7 @@ macro_rules! fail_point {
 /// information about controlling fail points see the [`cfg`](fn.cfg.html)
 /// function.
 #[macro_export]
-#[cfg(feature = "failpoints")]
+#[cfg(all(feature = "failpoints", feature = "async"))]
 macro_rules! fail_point_async {
     ($registry:expr, $name:expr) => {{
         $crate::eval_async($registry, $name, |_| {
